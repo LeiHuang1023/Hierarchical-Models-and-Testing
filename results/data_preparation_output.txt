@@ -1,0 +1,19 @@
+# A tibble: 14 × 6
+   study              treatment   Yes    No Total observed_rate
+   <fct>                  <int> <dbl> <dbl> <dbl>         <dbl>
+ 1 Bohner2014.Ex1             0   123    24   147         0.837
+ 2 Bohner2014.Ex1             1   472   104   576         0.819
+ 3 Bohner2014.Ex2             0    28     2    30         0.933
+ 4 Bohner2014.Ex2             1   101    31   132         0.765
+ 5 Goldstein.2008.Ex1         0    74   137   211         0.351
+ 6 Goldstein.2008.Ex1         1    98   124   222         0.441
+ 7 Goldstein.2008.Ex2         0   103   174   277         0.372
+ 8 Goldstein.2008.Ex2         1   587   731  1318         0.445
+ 9 Mair2010                   0    21     4    25         0.84 
+10 Mair2010                   1    21     3    24         0.875
+11 Schulz2008.Ex2             0    77    58   135         0.57 
+12 Schulz2008.Ex2             1   406   249   655         0.62 
+13 Schulz2008.Ex3             0    82   105   187         0.439
+14 Schulz2008.Ex3             1   278   277   555         0.501
+Number of rows: 14 
+Number of experiments: 7 

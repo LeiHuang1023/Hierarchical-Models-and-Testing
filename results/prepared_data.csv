@@ -1,0 +1,15 @@
+Source,AuthorName,Experiment,Year,Group,Yes,No,Total,study,treatment,observed_rate
+Bohner2014.Ex1,Bohner & Schlüter,1,2014,Control,123,24,147,Bohner2014.Ex1,0,0.8367346938775511
+Bohner2014.Ex1,Bohner & Schlüter,1,2014,Social Norm,472,104,576,Bohner2014.Ex1,1,0.8194444444444444
+Bohner2014.Ex2,Bohner & Schlüter,2,2014,Control,28,2,30,Bohner2014.Ex2,0,0.9333333333333333
+Bohner2014.Ex2,Bohner & Schlüter,2,2014,Social Norm,101,31,132,Bohner2014.Ex2,1,0.7651515151515151
+Goldstein.2008.Ex1,Goldstein et al.,1,2008,Control,74,137,211,Goldstein.2008.Ex1,0,0.35071090047393366
+Goldstein.2008.Ex1,Goldstein et al.,1,2008,Social Norm,98,124,222,Goldstein.2008.Ex1,1,0.44144144144144143
+Goldstein.2008.Ex2,Goldstein et al.,2,2008,Control,103,174,277,Goldstein.2008.Ex2,0,0.37184115523465705
+Goldstein.2008.Ex2,Goldstein et al.,2,2008,Social Norm,587,731,1318,Goldstein.2008.Ex2,1,0.44537177541729894
+Mair2010,Mair & Bergin-Seers,1,2010,Control,21,4,25,Mair2010,0,0.84
+Mair2010,Mair & Bergin-Seers,1,2010,Social Norm,21,3,24,Mair2010,1,0.875
+Schulz2008.Ex2,Schulz et al.,2,2008,Control,77,58,135,Schulz2008.Ex2,0,0.5703703703703704
+Schulz2008.Ex2,Schulz et al.,2,2008,Social Norm,406,249,655,Schulz2008.Ex2,1,0.6198473282442748
+Schulz2008.Ex3,Schulz et al.,3,2008,Control,82,105,187,Schulz2008.Ex3,0,0.4385026737967914
+Schulz2008.Ex3,Schulz et al.,3,2008,Social Norm,278,277,555,Schulz2008.Ex3,1,0.5009009009009009
