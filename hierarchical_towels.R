@@ -1,0 +1,355 @@
+# Exercise: Hierarchical models and testing
+
+install.packages("brms")
+install.packages("dplyr")
+install.packages("tidyr")
+install.packages("ggplot2")
+install.packages("posterior")
+
+library(brms)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(ggplot2)
+library(posterior)
+
+set.seed(1234)
+dir.create("results", showWarnings = FALSE)
+
+# 2. Read data and check names ---------------------------------------------
+# Put towelData.csv in the working directory (check it with getwd()).
+towel_raw <- read_delim(
+  "towelData.csv",
+  delim = ";",
+  locale = locale(encoding = "Latin1"),
+  col_types = cols(Count = col_double()),
+  show_col_types = FALSE
+)
+print(names(towel_raw))
+print(head(towel_raw, 8))
+
+# Validate the original counts before reshaping.
+# This prevents unknown group labels from being silently coded as control.
+required_columns <- c("Source", "Group", "Towel.Reuse", "Count")
+stopifnot(all(required_columns %in% names(towel_raw)))
+stopifnot(
+  !anyNA(towel_raw[required_columns]),
+  all(nzchar(trimws(towel_raw$Source))),
+  setequal(unique(towel_raw$Group), c("Control", "Social Norm")),
+  setequal(unique(towel_raw$Towel.Reuse), c("Yes", "No")),
+  all(is.finite(towel_raw$Count)),
+  all(towel_raw$Count >= 0),
+  all(towel_raw$Count == floor(towel_raw$Count)),
+  anyDuplicated(towel_raw[c("Source", "Group", "Towel.Reuse")]) == 0
+)
+
+# 4. Data preparation -----------------------------------------------------
+# Follow the teacher's approach: outcome labels become Yes and No columns.
+# Each row now represents one group in one experiment.
+towel_data <- towel_raw %>%
+  pivot_wider(
+    names_from = Towel.Reuse,
+    values_from = Count
+  ) %>%
+  mutate(
+    Total = Yes + No,
+    study = factor(Source),
+    treatment = if_else(Group == "Social Norm", 1L, 0L),
+    observed_rate = Yes / Total
+  ) %>%
+  arrange(study, treatment)
+
+# Check that each experiment has exactly one control and one social norm row.
+stopifnot(
+  !anyNA(towel_data[c("study", "treatment", "Yes", "No", "Total")]),
+  all(towel_data$Total > 0),
+  nlevels(towel_data$study) >= 2,
+  all(table(towel_data$study, towel_data$treatment) == 1)
+)
+
+# Round only the display table; retain full precision in towel_data.
+prepared_display <- towel_data %>%
+  select(study, treatment, Yes, No, Total, observed_rate) %>%
+  mutate(observed_rate = round(observed_rate, 3))
+print(prepared_display, n = Inf, width = Inf)
+cat("Number of rows:", nrow(towel_data), "\n")
+cat("Number of experiments:", nlevels(towel_data$study), "\n")
+
+write_csv(towel_data, "results/prepared_data.csv")
+capture.output({
+  print(prepared_display, n = Inf, width = Inf)
+  cat("Number of rows:", nrow(towel_data), "\n")
+  cat("Number of experiments:", nlevels(towel_data$study), "\n")
+}, file = "results/data_preparation_output.txt")
+
+# 5. Describe the observed proportions -------------------------------------
+p_observed <- ggplot(towel_data,
+                     aes(x = study, y = observed_rate,
+                         colour = factor(treatment), group = treatment)) +
+  geom_point(size = 3, position = position_dodge(width = 0.4)) +
+  scale_colour_manual(values = c("0" = "#2878B5", "1" = "#DB7033"),
+                      breaks = c("0", "1"), labels = c("Control", "Social norm")) +
+  coord_flip() + ylim(0, 1) + theme_minimal() +
+  labs(x = "Experiment", y = "Observed reuse proportion", colour = "Group")
+print(p_observed)
+ggsave("results/observed_rates.png", p_observed, width = 8, height = 5, dpi = 200)
+
+# 6. Specify and fit the Bayesian model ------------------------------------
+# trials(Total) gives the number of binomial trials.
+# (1 | study) adds a random intercept for each study.
+# 0 + Intercept gives an explicit intercept so that its prior refers
+# to the control baseline, without brms's default intercept centering.
+model_formula <- bf(Yes | trials(Total) ~ 0 + Intercept + treatment + (1 | study))
+
+# Normal priors allow both positive and negative effects.
+# The beta prior gives about 95% prior probability to odds ratios 0.14-7.1.
+# Exponential(1) is a positive prior for the between-study SD.
+priors <- c(
+  set_prior("normal(0, 1.5)", class = "b", coef = "Intercept"),
+  set_prior("normal(0, 1)", class = "b", coef = "treatment"),
+  set_prior("exponential(1)", class = "sd", group = "study")
+)
+
+fit <- brm(
+  formula = model_formula,
+  data = towel_data,
+  family = binomial(link = "logit"),
+  prior = priors,
+  chains = 4, iter = 4000, warmup = 2000, cores = 2,
+  seed = 1234, backend = "rstan",
+  control = list(adapt_delta = 0.99, max_treedepth = 12)
+)
+saveRDS(fit, "results/towel_model.rds")
+# In a later session, load the fit instead of running brm again:
+# fit <- readRDS("results/towel_model.rds")
+# Refit if data, model or priors change; do not reuse an outdated saved fit.
+
+# 7. Check MCMC reliability ------------------------------------------------
+print(summary(fit, prob = 0.90))
+# Check diagnostics for all parameters
+diagnostics <- posterior::summarise_draws(
+  posterior::as_draws_array(fit)
+)
+
+print(
+  diagnostics[, c("variable", "rhat", "ess_bulk", "ess_tail")],
+  n = Inf
+)
+
+# Extract sampler diagnostics after warmup
+sampler_params <- rstan::get_sampler_params(
+  fit$fit,
+  inc_warmup = FALSE
+)
+
+# Count divergent transitions
+n_divergent <- sum(sapply(
+  sampler_params,
+  function(x) sum(x[, "divergent__"])
+))
+
+# Count iterations reaching the tree depth limit
+n_max_depth <- sum(sapply(
+  sampler_params,
+  function(x) sum(x[, "treedepth__"] >= 12)
+))
+
+print(c(
+  divergent_transitions = n_divergent,
+  max_treedepth_hits = n_max_depth
+))
+
+# Plot the four sampling chains
+trace_plot <- bayesplot::mcmc_trace(
+  as.array(fit),
+  pars = c(
+    "b_Intercept",
+    "b_treatment",
+    "sd_study__Intercept"
+  )
+)
+
+print(trace_plot)
+
+# Save the figure for the report
+ggplot2::ggsave(
+  "results/trace_plots.png",
+  plot = trace_plot,
+  width = 8,
+  height = 6,
+  dpi = 200
+)
+
+# Extract posterior draws
+draws <- posterior::as_draws_df(fit)
+
+alpha <- draws$b_Intercept
+beta <- draws$b_treatment
+tau <- draws$sd_study__Intercept
+
+# Calculate the odds ratio for each posterior draw
+odds_ratio <- exp(beta)
+
+# Summarise one parameter using its posterior draws
+summarise_one <- function(x) {
+  c(
+    Mean = mean(x),
+    Lower90 = unname(quantile(x, 0.05)),
+    Upper90 = unname(quantile(x, 0.95))
+  )
+}
+
+# Combine the summaries into one table
+posterior_summary <- data.frame(
+  Parameter = c("alpha", "beta", "tau", "odds_ratio"),
+  rbind(
+    summarise_one(alpha),
+    summarise_one(beta),
+    summarise_one(tau),
+    summarise_one(odds_ratio)
+  ),
+  row.names = NULL
+)
+
+# Round a copy for display
+posterior_display <- posterior_summary
+posterior_display[, 2:4] <- round(posterior_display[, 2:4], 3)
+
+print(posterior_display, row.names = FALSE)
+
+# Save the results without rounding
+readr::write_csv(
+  posterior_summary,
+  "results/posterior_summary.csv"
+)
+
+# Estimate posterior probabilities of the two hypotheses
+p_positive <- mean(beta > 0)
+p_nonpositive <- mean(beta <= 0)
+
+hypothesis_results <- data.frame(
+  Hypothesis = c("H0: beta <= 0", "H1: beta > 0"),
+  Posterior_probability = c(p_nonpositive, p_positive)
+)
+
+print(hypothesis_results, digits = 4, row.names = FALSE)
+
+# Save the hypothesis results
+readr::write_csv(
+  hypothesis_results,
+  "results/hypothesis_results.csv"
+)
+
+# Simulate replicated counts using posterior draws
+set.seed(1234)
+
+y_rep <- brms::posterior_predict(
+  fit,
+  newdata = towel_data,
+  re_formula = NULL,
+  ndraws = 1000
+)
+
+# Check the dimensions
+dim(y_rep)
+
+# Divide each column by its group sample size
+rate_rep <- sweep(
+  y_rep,
+  MARGIN = 2,
+  STATS = towel_data$Total,
+  FUN = "/"
+)
+
+# Summarise the predictive distribution for each group
+ppc_data <- towel_data %>%
+  mutate(
+    observed_rate = Yes / Total,
+    predicted_mean = colMeans(rate_rep),
+    lower90 = apply(rate_rep, 2, quantile, probs = 0.05),
+    upper90 = apply(rate_rep, 2, quantile, probs = 0.95),
+    group_label = factor(
+      treatment,
+      levels = c(0, 1),
+      labels = c("Control", "Social norm")
+    )
+  )
+
+# Display observed and predicted proportions
+ppc_display <- ppc_data %>%
+  select(
+    study, group_label, observed_rate,
+    predicted_mean, lower90, upper90
+  ) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 3)))
+
+print(ppc_display, n = Inf, width = Inf)
+
+# Compare observed proportions with predictive intervals
+ppc_plot <- ggplot(ppc_data, aes(x = study)) +
+  geom_linerange(
+    aes(ymin = lower90, ymax = upper90),
+    colour = "#2878B5",
+    linewidth = 0.8
+  ) +
+  geom_point(
+    aes(y = predicted_mean),
+    colour = "#2878B5",
+    shape = 1,
+    size = 3
+  ) +
+  geom_point(
+    aes(y = observed_rate),
+    colour = "black",
+    size = 2
+  ) +
+  facet_wrap(~ group_label, nrow = 1) +
+  coord_flip(ylim = c(0, 1)) +
+  labs(
+    x = "Experiment",
+    y = "Towel reuse proportion",
+    caption = paste(
+      "Black points: observed proportions.",
+      "Blue circles: predictive means.",
+      "Blue lines: 90% predictive intervals."
+    )
+  ) +
+  theme_minimal()
+
+print(ppc_plot)
+
+# Save the figure and numerical results
+ggsave(
+  "results/posterior_predictive_check.png",
+  plot = ppc_plot,
+  width = 10,
+  height = 6,
+  dpi = 200
+)
+
+readr::write_csv(
+  ppc_data,
+  "results/posterior_predictive_check.csv"
+)
+
+# Check whether each observation is inside its predictive interval
+ppc_data <- ppc_data %>%
+  mutate(
+    inside90 = observed_rate >= lower90 &
+      observed_rate <= upper90
+  )
+
+# Count observations inside the intervals
+print(c(
+  inside_interval = sum(ppc_data$inside90),
+  total_groups = nrow(ppc_data)
+))
+
+# Show groups outside their predictive intervals
+ppc_data %>%
+  filter(!inside90) %>%
+  select(
+    study, group_label, observed_rate,
+    predicted_mean, lower90, upper90
+  ) %>%
+  print(n = Inf, width = Inf)
